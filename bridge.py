@@ -19,7 +19,7 @@ import subprocess
 import sys
 from typing import Any
 
-BRIDGE_VERSION = "0.1.0"
+BRIDGE_VERSION = "0.2.0"
 SCHEMA_VERSION = "bridge-v1"
 
 
@@ -114,6 +114,7 @@ def summarize(payload: dict[str, Any]) -> dict[str, Any]:
     threads = payload["threads"]
     return {
         "threads": len(threads),
+        "tracked_changes": len(payload.get("tracked_changes") or []),
         "anchors": sum(map(len, mapping.values())),
         "resolved": sum(bool(t.get("resolved")) for t in threads.values() if isinstance(t, dict)),
         "orphan_threads": sum(tid not in mapping for tid in threads),
@@ -133,7 +134,8 @@ def _message_key(m: dict) -> str:
 
 def compare_payloads(old: dict[str, Any] | None, new: dict[str, Any]) -> list[dict[str, Any]]:
     if old is None:
-        return [{"kind": "new_thread", "thread_id": tid} for tid in sorted(new["threads"])]
+        return ([{"kind": "new_thread", "thread_id": tid} for tid in sorted(new["threads"])]
+                + [{"kind": "new_tracked_change", "change_key": k} for k in sorted(change_map(new))])
     changes: list[dict[str, Any]] = []
     old_threads, new_threads = old["threads"], new["threads"]
     aold, anew = anchored_threads(old), anchored_threads(new)
@@ -159,7 +161,29 @@ def compare_payloads(old: dict[str, Any] | None, new: dict[str, Any]) -> list[di
                            str(c.get("line")), bool(c.get("stale"))) for c in anchors)
         if sig(aold.get(tid, [])) != sig(anew.get(tid, [])):
             changes.append({"kind": "anchor_changed", "thread_id": tid})
+    before, after = change_map(old), change_map(new)
+    for key in sorted(set(after) - set(before)):
+        changes.append({"kind": "new_tracked_change", "change_key": key})
+    for key in sorted(set(before) - set(after)):
+        changes.append({"kind": "missing_tracked_change", "change_key": key,
+                        "note": "Missing from this export; acceptance/deletion is unknown"})
+    for key in sorted(set(before) & set(after)):
+        if before[key] != after[key]:
+            changes.append({"kind": "updated_tracked_change", "change_key": key})
     return changes
+
+
+def change_map(payload):
+    result = {}
+    for change in payload.get("tracked_changes") or []:
+        if isinstance(change, dict):
+            cid = change.get("id") or change.get("change_id") or change.get("_id")
+            key = json_canonical([change.get("doc_id"), str(cid)]) if cid else None
+        else:
+            key = None
+        key = key or "content:" + hashlib.sha256(json_canonical(change).encode()).hexdigest()
+        result[key] = change
+    return result
 
 
 def _write_atomic(path: Path, data: str):
@@ -324,7 +348,27 @@ def to_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
-def export_file(payload: dict[str, Any], output: Path, format_name: str):
+def export_file(payload: dict[str, Any], output: Path, format_name: str, kind: str = "comments"):
+    if kind == "suggestions":
+        output.parent.mkdir(parents=True, exist_ok=True)
+        changes = payload.get("tracked_changes") or []
+        if format_name == "json":
+            output.write_text(json.dumps({"schema_version": SCHEMA_VERSION,
+                "project": payload["project"], "data_kind": "native_tracked_changes",
+                "tracked_changes": changes}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        elif format_name == "csv":
+            with output.open("w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.writer(f)
+                writer.writerow(["project_id", "change_key", "raw_change_json"])
+                writer.writerows([payload["project"]["id"], k, json_canonical(v)]
+                                 for k, v in change_map(payload).items())
+        elif format_name == "md":
+            output.write_text("# Native tracked changes\n\n" + "\n\n".join(
+                "```json\n" + json.dumps(c, ensure_ascii=False, indent=2) + "\n```" for c in changes) + "\n",
+                encoding="utf-8")
+        else:
+            raise ValueError(f"Unsupported format: {format_name}")
+        return
     output.parent.mkdir(parents=True, exist_ok=True)
     if format_name == "md":
         output.write_text(to_markdown(payload), encoding="utf-8")
@@ -371,6 +415,10 @@ def cli(argv: list[str] | None = None) -> int:
     pe.add_argument("--project")
     pe.add_argument("--format", choices=["md", "csv", "json"], default="md")
     pe.add_argument("--out", required=True)
+    pe.add_argument("--kind", choices=["comments", "suggestions"], default="comments")
+    pn = subs.add_parser("ingest-mail", help="离线解析 EML / Gmail full JSON；单独保存通知证据索引")
+    pn.add_argument("--file", required=True)
+    pn.add_argument("--store", default="./review-store")
     pd = subs.add_parser("diff", help="展示最后一次导入的增量事件")
     pd.add_argument("--store", default="./review-store")
     pd.add_argument("--project")
@@ -381,6 +429,12 @@ def cli(argv: list[str] | None = None) -> int:
     pdoc = subs.add_parser("doctor", help="检测环境/上游工具")
     args = parser.parse_args(argv)
     try:
+        if args.command == "ingest-mail":
+            from notifications import load_notifications, ingest_notifications
+            notices = load_notifications(Path(args.file))
+            result = ingest_notifications(notices, Path(args.store))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
         if args.command == "doctor":
             binary = shutil.which("overleaf-comments-export")
             print(f"Python: {sys.version.split()[0]}")
@@ -416,7 +470,7 @@ def cli(argv: list[str] | None = None) -> int:
         if args.command == "export":
             payload = load_payload(locate_latest(Path(args.store), args.project))
             path = Path(args.out)
-            export_file(payload, path, args.format)
+            export_file(payload, path, args.format, args.kind)
             print(f"导出成功: {path}")
             return 0
         if args.command == "diff":

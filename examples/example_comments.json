@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.3",
+  "tool_version": "example-only",
+  "project": {"id": "demo-paper-123", "title": "UAV-Assisted Edge Computing (Demo)"},
+  "threads": {
+    "thread-alpha": {
+      "id": "thread-alpha", "resolved": false, "reply_count": 1,
+      "messages": [
+        {"id": "msg-1", "role": "comment", "user": {"id": "r1", "name": "Reviewer A"}, "content": "Please clarify what 'lightweight' means.", "timestamp": "2026-10-01T09:00:00+00:00"},
+        {"id": "msg-2", "role": "reply", "user": {"id": "r2", "name": "Coauthor"}, "content": "We should add latency measurements.", "timestamp": "2026-10-02T12:00:00+00:00"}
+      ]
+    },
+    "thread-beta": {
+      "id": "thread-beta", "resolved": true, "reply_count": 0,
+      "messages": [
+        {"id": "msg-3", "role": "comment", "user": {"id": "r1", "name": "Reviewer A"}, "content": "Check the figure label.", "timestamp": "2026-10-01T11:00:00+00:00"}
+      ]
+    },
+    "orphan-deleted-anchor": {
+      "id": "orphan-deleted-anchor", "resolved": false, "reply_count": 0,
+      "messages": [
+        {"id": "msg-4", "role": "comment", "user": {"id": "r3", "name": "Reviewer B"}, "content": "The original phrase has since been removed.", "timestamp": "2026-10-03T08:00:00+00:00"}
+      ]
+    }
+  },
+  "comments": [
+    {"short_id": "C001", "thread_id": "thread-alpha", "doc_id": "doc-1", "pathname": "sections/introduction.tex", "line": 14, "col": 4, "offset": 450, "nearest_heading": "Introduction", "anchored_text": "lightweight state summaries", "stale": false, "context": {"before": "the aerial node collects ", "anchor": "lightweight state summaries", "after": " for coordination."}},
+    {"short_id": "C002", "thread_id": "thread-beta", "doc_id": "doc-2", "pathname": "sections/method.tex", "line": 42, "col": 0, "offset": 909, "nearest_heading": "System Model", "anchored_text": "", "stale": false, "context": {"before": "\\begin{figure}", "anchor": "", "after": "\\caption{System model}"}}
+  ],
+  "orphan_thread_ids": ["orphan-deleted-anchor"],
+  "tracked_changes": [],
+  "pulled_at": "2026-10-17T10:00:00+00:00"
+}
